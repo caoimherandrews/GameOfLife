@@ -21,6 +21,18 @@ func distributor(p golParams, d distributorChans, alive chan []cell) {
 		new_world[i] = make([]byte, p.imageWidth)
 	}
 
+	// Create the 2D slice to store the world.
+	source_slice_world := make([][]byte, p.imageHeight)
+	for i := range source_slice_world {
+		source_slice_world[i] = make([]byte, p.imageWidth)
+	}
+
+	// Create the 2D slice to store the new world.
+	target_slice_world := make([][]byte, p.imageHeight)
+	for i := range target_slice_world {
+		target_slice_world[i] = make([]byte, p.imageWidth)
+	}
+
 	// Request the io goroutine to read in the image with the given filename.
 	d.io.command <- ioInput
 	d.io.filename <- strings.Join([]string{strconv.Itoa(p.imageWidth), strconv.Itoa(p.imageHeight)}, "x")
@@ -38,12 +50,14 @@ func distributor(p golParams, d distributorChans, alive chan []cell) {
 
 	// Calculate the new state of Game of Life after the given number of turns.
 	for turns := 0; turns < p.turns; turns++ {
-			golLogic(world, new_world, p, d)
-			d.io.command <- ioOutput
-			d.io.filename<-strings.Join([]string{strconv.Itoa(p.imageWidth), strconv.Itoa(p.imageHeight),strconv.Itoa(p.threads),strconv.Itoa(p.turns)} , "x")
-			swap(world, new_world, p, d)
-			}
-	
+		splitUpBoard(world, p)
+		golLogic(world, new_world, p, d)
+		//putboardbacktogether
+		d.io.command <- ioOutput
+		d.io.filename<-strings.Join([]string{strconv.Itoa(p.imageWidth), strconv.Itoa(p.imageHeight),strconv.Itoa(p.threads),strconv.Itoa(p.turns)} , "x")
+		swap(world, new_world, p, d)
+	}
+
 
 	// Create an empty slice to store coordinates of cells that are still alive after p.turns are done.
 	var finalAlive []cell
@@ -65,9 +79,9 @@ func distributor(p golParams, d distributorChans, alive chan []cell) {
 }
 
 func swap(world [][]byte, new_world [][]byte, p golParams, d distributorChans){
-	for y := 0; y < p.imageHeight; y++ {			
+	for y := 0; y < p.imageHeight; y++ {
 		for x := 0; x < p.imageWidth; x++ {
-			world[y][x] = new_world[y][x] 	
+			world[y][x] = new_world[y][x]
 			d.io.outputVal <- world[y][x]
 		}
 	}
@@ -76,75 +90,69 @@ func swap(world [][]byte, new_world [][]byte, p golParams, d distributorChans){
 func golLogic(world [][]byte, new_world [][]byte, p golParams, d distributorChans){
 	for y := 0; y < p.imageHeight; y++ {
 		for x := 0; x < p.imageWidth; x++ {
-				sum := 0											//counts the number of living neighbours a cell has
-				if (x>0) && (x<p.imageWidth-1) && (y>0) &&(y < p.imageWidth - 1) {
 
-					//if we're not dealing with any edge cases...
-					for i := -1; i < 2; i++ {
-						if world[y-1][x+i] == 0xFF	{sum++}			//the first row
-						if world[y+1][x+i] == 0xFF	{sum++}			//the last row
-					}
-					if world[y][x-1] == 0xFF		{sum++}			//the left middle pixel
-					if world[y][x+1] == 0xFF		{sum++}			//the right middle pixel
+			sum := 0
+			maxHeight := p.imageHeight - 1
+			maxWidth := p.imageWidth - 1
 
-				} else{								//if there's edge cases, we need to look at checking each neighbour's validity individually
-					yplus  := y+1					//variables to store new wraparound values
-					yminus := y-1
-					xplus  := x+1
-					xminus := x-1
+			if (y == 0) || (y == maxHeight) || (x == 0) || (x == maxWidth){
+				yplus  := y + 1
+				yminus := y - 1
+				xplus  := x + 1
+				xminus := x - 1
 
-					if (y == 0){ 					//if at top of image
-						yminus = p.imageHeight -1 	//to account for indexing from zero
-					}
-					if (y==p.imageHeight-1){ 		//if at bottom of image
-						yplus = 0
-					}
-					if (x==0){						//if at left of image
-						xminus = p.imageWidth -1
-					}
-					if (x == p.imageWidth-1){		//if at right of image
-						xplus = 0
-					}
-
-					//find alive_count here for wrap around cases
-					//top row
-					if world[yminus][xminus] == 0xFF	{sum++}		//top left
-					if world[yminus][x] == 0xFF			{sum++}		//top middle
-					if world[yminus][xplus] == 0xFF		{sum++}		//top right
-
-					//middle pixels
-					if world[y][xminus] == 0xFF			{sum++}		//middle left
-					if world[y][xplus] == 0xFF			{sum++}		//middle right
-
-					//bottom row
-					if world[yplus][xminus] == 0xFF		{sum++}		//bottom left
-					if world[yplus][x] == 0xFF			{sum++}		//bottom middle
-					if world[yplus][xplus] == 0xFF		{sum++}		//bottom right
-
+				if (y == 0){
+					yminus = maxHeight
+				}
+				if (y == maxHeight){
+					yplus = 0
+				}
+				if (x == 0){
+					xminus = maxWidth
+				}
+				if (x == maxWidth){
+					xplus = 0
 				}
 
-				//add to new image representation
-				//any live cell with fewer than 2 neighbours dies
-				if (world[y][x] == 0xFF) && (sum < 2) {
-					new_world[y][x] = 0X00
-				}
 
-				//any live cell with 2 or 3 live neighbours is unaffected
-				if (world[y][x] == 0xFF) && ((sum == 2) || (sum == 3)) {
-					new_world[y][x] = 0xFF
-				}
+				if world[yminus][xminus] == 0xFF	{sum++}
+				if world[yminus][x] == 0xFF			{sum++}
+				if world[yminus][xplus] == 0xFF		{sum++}
 
-				//any live cell with more than 3 live neighbours dies
-				if (world[y][x] == 0xFF) && (sum > 3) {
-					new_world[y][x] = 0X00
-				}
+				if world[y][xminus] == 0xFF			{sum++}
+				if world[y][xplus] == 0xFF			{sum++}
 
-				//any dead cell with exactly 3 neighbours comes alive
-				if (world[y][x] == 0x00) && (sum == 3) { 			//if it's dead, and has 3 neighbours
-					new_world[y][x] = 0xFF 							//colour changed to black
+				if world[yplus][xminus] == 0xFF		{sum++}
+				if world[yplus][x] == 0xFF			{sum++}
+				if world[yplus][xplus] == 0xFF		{sum++}
+			}else{
+
+				for horizontal := -1; horizontal < 2; horizontal++ {
+					if world[y-1][x+horizontal] == 0xFF	{sum++}
+					if world[y+1][x+horizontal] == 0xFF	{sum++}
 				}
+				if world[y][x-1] == 0xFF		{sum++}
+				if world[y][x+1] == 0xFF		{sum++}
+			}
+
+			//GOL rules
+			if (sum < 2) && (world[y][x] == 0xFF){
+				new_world[y][x] = 0x00
+			}
+
+			if ((sum == 2) || sum == 3 ) && (world[y][x] == 0xFF){
+				new_world[y][x] = 0xFF
+			}
+
+			if (sum > 3) && (world[y][x] == 0xFF) {
+				new_world[y][x] = 0x00
+			}
+
+			if (sum == 3) && (world[y][x] == 0x00) {
+				new_world[y][x] = 0xFF
 			}
 		}
+	}
 }
 
 func print_out_board(current_world [][]byte, p golParams, turns int){
@@ -160,4 +168,50 @@ func print_out_board(current_world [][]byte, p golParams, turns int){
 		print("\n")
 	}
 	print("\n \n")
+}
+
+func worker(p golParams, d distributorChans){
+
+
+
+
+
+}
+
+func splitUpBoard(world [][]byte, p golParams){
+	slice_height := (p.imageHeight/ p.threads) + 2 //height of slices we are sending
+
+	for i := 0; i < p.threads; i++ { //for each thread to send
+		start := i*slice_height //start of the thread
+		top := start - 1 //edge cases
+		if start == 0 {
+			top = maxHeight
+		}
+		bottom := start + slice_height
+		if start == p.imageHeight - workerHeight {
+			bottom = 0
+		}
+	}
+	sendRows(world, p, top, bottom)
+}
+
+func sendRows(world [][] byte, p golParams, startRow int, endRow int, d distributorChans){
+	d.io.channel_thread <- world[startRow][x] //send top halo
+
+	middleStart := startRow + 1
+	middleEnd := endRow - 1
+
+	for s := middleStart; s < middleEnd; s++{ //send middle halo
+		d.io.channel_thread <- world[s][x]
+	}
+
+	d.io.channel_thread <- world[endRow][x] //send bottom halo
+}
+
+func recieveRows(target_slice_world [][] byte, world [][] byte, p golParams, startRow int, endRow Int){
+	middleStart := startRow + 1
+	middleEnd := endRow - 1
+	for s := middleStart; s < middleEnd; s++{
+		world[y][x] = target_slice_world[s][x]
+	}
 }

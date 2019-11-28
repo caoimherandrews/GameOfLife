@@ -38,6 +38,7 @@ type distributorToIo struct {
 	filename  chan<- string
 	inputVal  <-chan uint8
 	outputVal chan uint8
+	thread_channel chan uint8
 }
 
 // ioToDistributor defines all chans that the io goroutine will have to communicate with the distributor goroutine.
@@ -49,6 +50,7 @@ type ioToDistributor struct {
 	filename  <-chan string
 	inputVal  chan<- uint8
 	outputVal chan uint8
+	thread_channel chan uint8
 }
 
 // distributorChans stores all the chans that the distributor goroutine will use.
@@ -90,6 +92,19 @@ func gameOfLife(p golParams, keyChan <-chan rune) []cell {
 	ioChans.distributor.outputVal = outputVal
 
 	aliveCells := make(chan []cell)
+
+	//Create an array of channels of size p.threads 1b
+	thread_channel := make([]chan [][]uint8, p.threads)
+	for i := range thread_channel {
+		thread_channel[i] = make(chan [][]uint8)
+	}
+	dChans.io.thread_channel = thread_channel
+	ioChans.distributor.thread_channel = thread_channel
+
+	//call to worker on thread channel 1b
+	for j:= range p.threads {
+		go worker(p, thread_channel[j])
+	}
 
 	go distributor(p, dChans, aliveCells)
 	go pgmIo(p, ioChans)
